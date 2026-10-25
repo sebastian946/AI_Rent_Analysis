@@ -7,7 +7,7 @@ class WebSearchTool(BaseModel):
     vehicles: int
     department: str
     ubication: str
-    property_type: Literal["casa","apartamento","habitacion","local","apartaestudio","casa campestre","finca"]
+    property_type: Literal["casa","apartamento","apartaestudio"]
     service_type: Literal["arriendo","compra"]
     query: Optional[str] = None
 
