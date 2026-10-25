@@ -22,8 +22,6 @@ class WebScraping:
         self.page_browser = None
 
     def get_browser(self):
-        # No se usa `with sync_playwright()` porque al salir del bloque
-        # se cierra el navegador y la página deja de servir.
         self.playwright = sync_playwright().start()
         self.browser = self.playwright.chromium.launch(headless=self.headless)
         self.page_browser = self.browser.new_page()
@@ -51,15 +49,44 @@ class WebScraping:
         if not self.select_property_type_fincaraiz():
             return None
 
+        if not self.select_type_service():
+            return None
+
+        self.input_location()
+        self.click_search_button()
+        return self.get_info()
+
+    def select_type_service(self) -> bool:
+        """Selecciona el tipo de operacion (Arriendo / Venta) en el filtro."""
+        content = self.page_browser.locator(".operation-type-filter")
+        try:
+            content.wait_for(state="visible", timeout=10000)
+        except PlaywrightTimeoutError:
+            return self.error_handling_locator(".operation-type-filter")
+
+        # El filtro es un radio group de Ant Design: cada opcion es un label
+        buttons = content.locator("label.ant-radio-button-wrapper")
+        available = [t.strip() for t in buttons.all_inner_texts() if t.strip()]
+
+        target = next((t for t in available if t.lower() == self.service_type.lower()), None)
+        if target is None:
+            print(f"[FINCARAIZ] Tipo de servicio '{self.service_type}' no existe. Disponibles: {available}")
+            return False
+
+        # Se hace click en el label completo: el <span> con el texto esta tapado
+        # por el overlay .ant-radio-button y el click directo sobre el se bloquea
+        buttons.filter(has_text=target).click()
+
+        selected = content.locator(".ant-radio-button-wrapper-checked").all_inner_texts()
+        print(f"[FINCARAIZ] Tipo de servicio seleccionado: {selected}")
+        return selected == [target]
+
     def select_property_type_fincaraiz(self) -> bool:
         """Abre el select de tipo de inmueble y elige la opcion segun property_type."""
-        option_label = self.property_type.capitalize()  # "casa" -> "Casa"
+        option_label = self.property_type.capitalize()  
 
         self.page_browser.click(".ant-select-selector")
 
-        # Ant Design deja el dropdown en el DOM al cerrarlo y solo le agrega la
-        # clase -hidden, por eso se excluye. El div "#rc_select_X_list" es solo
-        # para accesibilidad y siempre esta oculto: no sirve para esperar.
         dropdown = self.page_browser.locator(
             ".ant-select-dropdown:not(.ant-select-dropdown-hidden)"
         )
@@ -69,21 +96,18 @@ class WebScraping:
             print("[FINCARAIZ] No se abrio la lista de tipo de inmueble")
             return False
 
-        # Los elementos role="option" tambien existen dentro del listbox oculto
-        # de accesibilidad, asi que se usa la clase del item visual y su title.
         options = dropdown.locator(".ant-select-item-option")
         available = [o.get_attribute("title") for o in options.all()]
+
         if option_label not in available:
             print(f"[FINCARAIZ] Opcion '{option_label}' no existe. Disponibles: {available}")
             return False
 
-        # El select es de seleccion multiple y trae "Casa" y "Apartamento"
-        # marcados por defecto. Cada click alterna la opcion, asi que se
-        # recorre la lista y se deja marcada unicamente la deseada.
         for option in options.all():
             title = option.get_attribute("title")
             is_selected = "ant-select-item-option-selected" in (option.get_attribute("class") or "")
             should_select = title == option_label
+
             if is_selected != should_select:
                 option.click()
 
@@ -91,6 +115,65 @@ class WebScraping:
         selected = self.page_browser.locator(".ant-select-selection-item").all_inner_texts()
         print(f"[FINCARAIZ] Tipo de inmueble seleccionado: {selected}")
         return selected == [option_label]
+
+    def input_location(self):
+        location_input = ".location-search__input"
+
+        if not self.page_browser.locator(location_input):
+            self.error_handling_locator(location_input)
+        self.page_browser.locator(location_input).fill(self.ubication)
+
+    # Click search button page
+    def click_search_button(self):
+        location_button = ".search-button"
+        location_cards = ".listingsWrapper"
+
+        if not self.page_browser.locator(location_button):
+            self.error_handling_locator(location_button)
+
+        self.page_browser.locator(location_button).click()
+
+        if not self.page_browser.locator(location_cards):
+            self.error_handling_locator(location_cards)
+
+    def get_info(self):
+        cards = self.page_browser.locator(".lc-dataWrapper")
+        cards.first.wait_for(state="visible", timeout=10000)  
+
+        results = []
+        for card in cards.all():
+            detail = card.locator("a").first 
+            href = detail.get_attribute("href")
+            title = detail.get_attribute("title")
+
+            price = detail.locator(".main-price").inner_text()
+
+            # Varios <strong> (habitaciones, banos, m2): all_inner_texts devuelve una lista
+            distribution = detail.locator(
+                '//div[@class="lc-typologyContainer"]//span/strong'
+            ).all_inner_texts()
+
+            location = detail.locator(".lc-title").inner_text()     
+
+            description = detail.locator(".lc-description").inner_text()
+            results.append({
+                "url": href,
+                "title": title,
+                "price": price,
+                "distribution": distribution,
+                "location": location,
+                "description": description
+            })
+        return results
+
+
+    # Error Handlings
+    def error_handling_locator(self,locator):
+        print(f"The locator {locator} not found in the page")
+        return False
+
+
+
 
 
 def test_run():
