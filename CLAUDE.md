@@ -13,7 +13,8 @@ Dependencies are managed with `uv` (lockfile `uv.lock`).
 ```
 uv sync                                   # install deps into .venv
 uv run playwright install chromium        # one-time browser install for the scraper
-uv run python main.py                     # interactive run (headless scraping)
+uv run uvicorn backend.app:app --reload   # web app: API + frontend at http://127.0.0.1:8000 (docs at /docs)
+uv run python main.py                     # interactive CLI run (headless scraping)
 uv run python main.py --show-browser      # watch the scraper in a visible browser
 uv run python main.py --json report.json  # also dump the full analysis as JSON
 uv run python utils/web_scaraping.py      # scraper-only smoke test (visible browser, Enter to close)
@@ -32,4 +33,7 @@ There is no test suite or linter configured yet. Running `main.py` makes a real 
 - `model/agents_model.py` — the agent's structured output: `AgentAnalysis` (headline, market_overview, `evaluations`, top_recommendation, advice, missing_info) and `ListingEvaluation` (rank, tier, score 0-100, pros/cons, fits_budget, advisor_note). Changing these models changes the JSON schema sent to the model and the report printed by `main.py`.
 - `utils/web_scaraping.py` (sic) — `WebScraping` class; build it with `WebScraping.from_search(search, headless=...)`. `scraping_page()` iterates `LIST_URL_RENT_PAGES` and returns `list[Listing]`. `scraping_fincaraiz()` drives the Ant Design UI (property-type select → operation radio group → location input → search). In each result card the first `<a>` is the agency logo; the listing is `a.lc-data`, with `.main-price`, `.lc-location`, `.lc-description` and `.lc-typologyContainer strong` (rooms/baths/m²). Selectors are Ant Design / `lc-*` class names and will break if the site changes. Adding a portal means a new entry in `LIST_URL_RENT_PAGES`, a `scraping_<portal>` method and a branch in `scraping_page()`.
 - `agents/agent.py` — `RentAdvisorAgent.analyze(search, listings)` calls `client.beta.messages.parse` on `claude-opus-5-5` with `output_format=AgentAnalysis`, effort `high`, and server-side refusal fallbacks (`fallbacks="default"`). It sends at most `MAX_LISTINGS` (30) listings as JSON and raises on `refusal` / `max_tokens`. The system prompt holds the tier rubric and evaluation criteria.
-- `main.py` — `collect_user_input()` (interactive prompts validated through `WebSearchTool`), `run()` (scrape → analyze → `print_report`), CLI flags `--show-browser` and `--json`.
+- `services/analysis.py` — `run_analysis(search, headless, on_progress)` is the single pipeline (scrape → agent) shared by the CLI and the API; raises `NoListingsFound` when the scraper returns nothing.
+- `backend/app.py` — FastAPI. `POST /api/analyses` (body = `WebSearchTool` JSON) enqueues a job on a 2-worker `ThreadPoolExecutor` and returns `202 {id, status}`; `GET /api/analyses/{id}` returns the `Job` (status queued/scraping/analyzing/done/error, progress `message`, `listings`, `result: AgentAnalysis`, `error`). Jobs live in an in-memory dict and are lost on restart. The scraper must stay in a worker thread because Playwright's sync API cannot run inside the asyncio loop. `/` and static files are served from `frontend/`.
+- `frontend/index.html` — single-file vanilla HTML/CSS/JS app (no build step). Submits the form to the API, polls the job every 2.5 s, then renders the tier ranking with per-tier filter chips, the top recommendation and the advice. Keep it dependency-free; it is served directly by FastAPI.
+- `main.py` — `collect_user_input()` (interactive prompts validated through `WebSearchTool`), `run()` (calls `run_analysis` → `print_report`), CLI flags `--show-browser` and `--json`.
