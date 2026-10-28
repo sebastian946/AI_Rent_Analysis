@@ -1,4 +1,8 @@
+from typing import List
+
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
+
+from model.tools_model import Listing, WebSearchTool
 
 
 LIST_URL_RENT_PAGES = {
@@ -7,6 +11,19 @@ LIST_URL_RENT_PAGES = {
 
 
 class WebScraping:
+    @classmethod
+    def from_search(cls, search: WebSearchTool, headless: bool = True) -> "WebScraping":
+        return cls(
+            price=search.price,
+            square_meters=search.square_meters,
+            vehicles=search.vehicles,
+            department=search.department,
+            ubication=search.search_location,
+            property_type=search.property_type,
+            service_type=search.service_type,
+            headless=headless,
+        )
+
     def __init__(self, price, square_meters, vehicles, department, ubication,
                  property_type, service_type, headless: bool = False):
         self.price = price
@@ -33,12 +50,16 @@ class WebScraping:
         if self.playwright:
             self.playwright.stop()
 
-    def scraping_page(self):
+    def scraping_page(self) -> List[Listing]:
+        """Recorre todos los portales y devuelve la lista consolidada de inmuebles."""
         if self.page_browser is None:
             self.get_browser()
+        listings: List[Listing] = []
         for key, url in LIST_URL_RENT_PAGES.items():
             if key == "FINCARAIZ":
-                self.scraping_fincaraiz(url)
+                results = self.scraping_fincaraiz(url) or []
+                listings.extend(Listing(web_app="fincaraiz", **r) for r in results)
+        return listings
 
     def scraping_fincaraiz(self, url):
         print(f"[FINCARAIZ] Open Url {url} ...")
@@ -133,29 +154,41 @@ class WebScraping:
 
         self.page_browser.locator(location_button).click()
 
-        if not self.page_browser.locator(location_cards):
+        try:
+            self.page_browser.locator(location_cards).wait_for(state="visible", timeout=15000)
+        except PlaywrightTimeoutError:
             self.error_handling_locator(location_cards)
 
     def get_info(self):
         cards = self.page_browser.locator(".lc-dataWrapper")
-        cards.first.wait_for(state="visible", timeout=10000)  
+        try:
+            cards.first.wait_for(state="visible", timeout=10000)
+        except PlaywrightTimeoutError:
+            print("[FINCARAIZ] No se encontraron resultados para esa busqueda")
+            return []
 
         results = []
         for card in cards.all():
-            detail = card.locator("a").first 
-            href = detail.get_attribute("href")
+            # El primer <a> de la tarjeta es el logo de la inmobiliaria; el anuncio es a.lc-data
+            detail = card.locator("a.lc-data").first
+            if detail.count() == 0:
+                continue
+            href = detail.get_attribute("href") or ""
+            if href.startswith("/"):
+                href = LIST_URL_RENT_PAGES["FINCARAIZ"].rstrip("/") + href
             title = detail.get_attribute("title")
 
-            price = detail.locator(".main-price").inner_text()
+            price = self._text_or_empty(detail, ".main-price")
 
             # Varios <strong> (habitaciones, banos, m2): all_inner_texts devuelve una lista
-            distribution = detail.locator(
-                '//div[@class="lc-typologyContainer"]//span/strong'
-            ).all_inner_texts()
+            # Fincaraiz a veces renderiza "Hab" como "NaN" en el texto visible
+            distribution = [
+                " ".join(t.replace("NaN", "Hab").split())
+                for t in detail.locator(".lc-typologyContainer strong").all_inner_texts()
+            ]
 
-            location = detail.locator(".lc-title").inner_text()     
-
-            description = detail.locator(".lc-description").inner_text()
+            location = self._text_or_empty(detail, ".lc-location")
+            description = self._text_or_empty(detail, ".lc-description")
             results.append({
                 "url": href,
                 "title": title,
@@ -165,6 +198,11 @@ class WebScraping:
                 "description": description
             })
         return results
+
+    @staticmethod
+    def _text_or_empty(scope, selector: str) -> str:
+        node = scope.locator(selector).first
+        return node.inner_text().strip() if node.count() else ""
 
 
     # Error Handlings
@@ -189,7 +227,8 @@ def test_run():
         headless=False,
     )
     try:
-        scraper.scraping_page()
+        listings = scraper.scraping_page()
+        print(f"{len(listings)} inmuebles encontrados")
         input("Presiona Enter para cerrar el navegador...")
     finally:
         scraper.close()
