@@ -7,10 +7,9 @@ from typing import Optional
 
 from pydantic import ValidationError
 
-from agents.agent import RentAdvisorAgent
 from model.agents_model import AgentAnalysis
 from model.tools_model import WebSearchTool
-from utils.web_scaraping import WebScraping
+from services.analysis import NoListingsFound, run_analysis
 
 TIER_LABEL = {
     "S": "S  Ideal",
@@ -88,19 +87,11 @@ def print_report(analysis: AgentAnalysis) -> None:
 
 
 def run(search: WebSearchTool, headless: bool, output_json: Optional[str]) -> int:
-    print(f"\nBuscando {search.property_type} en {search.service_type} en {search.search_location}...")
-    scraper = WebScraping.from_search(search, headless=headless)
     try:
-        listings = scraper.scraping_page()
-    finally:
-        scraper.close()
-
-    if not listings:
-        print("No se encontraron inmuebles con esos criterios. Prueba otra ubicacion o tipo de inmueble.")
+        _, analysis = run_analysis(search, headless=headless, on_progress=lambda m: print(m))
+    except NoListingsFound as exc:
+        print(f"{exc} Prueba otra ubicacion o tipo de inmueble.")
         return 1
-    print(f"{len(listings)} inmuebles encontrados. Analizando con el asesor...\n")
-
-    analysis = RentAdvisorAgent().analyze(search, listings)
     print_report(analysis)
 
     if output_json:

@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AI Rent Analysis</title>
+  <style>
+    :root {
+      --bg: #f6f7f9; --card: #ffffff; --text: #1d2430; --muted: #5f6b7a; --border: #e2e6ec;
+      --accent: #1f6feb; --accent-text: #ffffff;
+      --tier-S: #7c3aed; --tier-A: #059669; --tier-B: #2563eb; --tier-C: #d97706; --tier-D: #dc2626;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        --bg: #0f141a; --card: #171e26; --text: #e6ebf1; --muted: #9aa7b6; --border: #2a3441; --accent: #4c8dff;
+      }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); }
+    header { padding: 28px 16px 8px; max-width: 1040px; margin: 0 auto; }
+    header h1 { margin: 0 0 4px; font-size: 1.6rem; }
+    header p { margin: 0; color: var(--muted); }
+    main { max-width: 1040px; margin: 0 auto; padding: 16px; display: grid; gap: 20px; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+    form { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+    label { display: grid; gap: 6px; font-size: .9rem; color: var(--muted); }
+    input, select, textarea { font: inherit; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); }
+    textarea { min-height: 70px; resize: vertical; }
+    .full { grid-column: 1 / -1; }
+    .actions { grid-column: 1 / -1; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+    button { font: inherit; padding: 11px 20px; border: 0; border-radius: 8px; background: var(--accent); color: var(--accent-text); cursor: pointer; font-weight: 600; }
+    button:disabled { opacity: .55; cursor: wait; }
+    .status { color: var(--muted); font-size: .95rem; }
+    .status.error { color: var(--tier-D); }
+    .hidden { display: none; }
+    .headline { font-size: 1.35rem; font-weight: 700; margin: 0 0 8px; }
+    .overview { color: var(--muted); margin: 0; line-height: 1.5; }
+    .filters { display: flex; gap: 8px; flex-wrap: wrap; margin: 4px 0 12px; }
+    .chip { padding: 6px 12px; border-radius: 999px; border: 1px solid var(--border); background: transparent; color: var(--text); font-weight: 600; font-size: .85rem; }
+    .chip.active { background: var(--text); color: var(--card); border-color: var(--text); }
+    .listing { display: grid; gap: 10px; border-top: 1px solid var(--border); padding: 16px 0; }
+    .listing:first-of-type { border-top: 0; }
+    .listing-head { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+    .tier { width: 42px; height: 42px; border-radius: 10px; display: grid; place-items: center; color: #fff; font-weight: 800; font-size: 1.2rem; flex: none; }
+    .tier-S { background: var(--tier-S); } .tier-A { background: var(--tier-A); } .tier-B { background: var(--tier-B); }
+    .tier-C { background: var(--tier-C); } .tier-D { background: var(--tier-D); }
+    .listing-title { font-weight: 700; margin: 0; }
+    .listing-title a { color: inherit; text-decoration: none; }
+    .listing-title a:hover { text-decoration: underline; }
+    .meta { color: var(--muted); font-size: .9rem; }
+    .score { margin-left: auto; font-weight: 700; }
+    .budget { font-size: .8rem; padding: 3px 8px; border-radius: 6px; font-weight: 600; }
+    .budget.ok { background: color-mix(in srgb, var(--tier-A) 15%, transparent); color: var(--tier-A); }
+    .budget.no { background: color-mix(in srgb, var(--tier-D) 15%, transparent); color: var(--tier-D); }
+    .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+    .cols h4 { margin: 0 0 6px; font-size: .85rem; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+    .cols ul { margin: 0; padding-left: 18px; line-height: 1.45; }
+    .note { background: var(--bg); border-left: 3px solid var(--accent); padding: 10px 12px; border-radius: 6px; line-height: 1.45; }
+    .advice ul { line-height: 1.5; }
+    .spinner { width: 18px; height: 18px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>AI Rent Analysis</h1>
+    <p>Cuéntanos qué tienes y qué buscas. Buscamos los inmuebles y un asesor con IA los clasifica por tiers.</p>
+  </header>
+
+  <main>
+    <section class="card">
+      <form id="search-form">
+        <label>Operación
+          <select name="service_type" required>
+            <option value="arriendo">Arriendo</option>
+            <option value="venta">Venta</option>
+          </select>
+        </label>
+        <label>Tipo de inmueble
+          <select name="property_type" required>
+            <option value="apartamento">Apartamento</option>
+            <option value="casa">Casa</option>
+            <option value="apartaestudio">Apartaestudio</option>
+          </select>
+        </label>
+        <label>Presupuesto máximo (COP)
+          <input name="price" type="number" min="1" step="1000" placeholder="2500000" required />
+        </label>
+        <label>Metros cuadrados mínimos
+          <input name="square_meters" type="number" min="1" value="40" required />
+        </label>
+        <label>Vehículos
+          <input name="vehicles" type="number" min="0" value="0" required />
+        </label>
+        <label>Departamento
+          <input name="department" placeholder="Antioquia" required />
+        </label>
+        <label>Ciudad o municipio
+          <input name="ubication" placeholder="Medellín" required />
+        </label>
+        <label>Localidad o barrio (opcional)
+          <input name="locality" placeholder="Laureles" />
+        </label>
+        <label class="full">Algo más que debamos saber (opcional)
+          <textarea name="query" placeholder="Mascotas, cerca al metro, piso alto..."></textarea>
+        </label>
+        <div class="actions">
+          <button id="submit" type="submit">Analizar</button>
+          <div id="spinner" class="spinner hidden"></div>
+          <span id="status" class="status"></span>
+        </div>
+      </form>
+    </section>
+
+    <section id="results" class="hidden">
+      <div class="card">
+        <p id="headline" class="headline"></p>
+        <p id="overview" class="overview"></p>
+      </div>
+      <div class="card" style="margin-top:20px">
+        <h3 style="margin:0 0 10px">Ranking por tiers</h3>
+        <div class="filters" id="filters"></div>
+        <div id="listings"></div>
+      </div>
+      <div class="card" style="margin-top:20px">
+        <h3 style="margin:0 0 8px">Recomendación principal</h3>
+        <p id="top" style="line-height:1.55;margin:0"></p>
+      </div>
+      <div class="card advice" style="margin-top:20px">
+        <h3 style="margin:0 0 8px">Consejos del asesor</h3>
+        <ul id="advice"></ul>
+        <div id="missing-wrap" class="hidden">
+          <h4 style="margin:14px 0 6px">Para afinar la búsqueda</h4>
+          <ul id="missing"></ul>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const form = document.getElementById("search-form");
+    const submitBtn = document.getElementById("submit");
+    const statusEl = document.getElementById("status");
+    const spinner = document.getElementById("spinner");
+    const results = document.getElementById("results");
+    const TIERS = ["S", "A", "B", "C", "D"];
+    const TIER_NAMES = { S: "Ideal", A: "Muy buena", B: "Aceptable", C: "Con reservas", D: "Descartar" };
+    let currentAnalysis = null;
+    let activeTier = "all";
+
+    function setStatus(text, isError = false) {
+      statusEl.textContent = text;
+      statusEl.classList.toggle("error", isError);
+    }
+
+    function setBusy(busy) {
+      submitBtn.disabled = busy;
+      spinner.classList.toggle("hidden", !busy);
+    }
+
+    function formPayload() {
+      const data = Object.fromEntries(new FormData(form).entries());
+      return {
+        service_type: data.service_type,
+        property_type: data.property_type,
+        price: Number(data.price),
+        square_meters: Number(data.square_meters),
+        vehicles: Number(data.vehicles),
+        department: data.department,
+        ubication: data.ubication,
+        locality: data.locality || null,
+        query: data.query || null,
+      };
+    }
+
+    async function api(path, options) {
+      const res = await fetch(path, options);
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const detail = Array.isArray(body.detail)
+          ? body.detail.map((d) => `${d.loc.slice(-1)[0]}: ${d.msg}`).join("; ")
+          : body.detail || res.statusText;
+        throw new Error(detail);
+      }
+      return body;
+    }
+
+    function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+
+    async function waitForJob(id) {
+      for (;;) {
+        const job = await api(`/api/analyses/${id}`);
+        setStatus(job.message);
+        if (job.status === "done") return job;
+        if (job.status === "error") throw new Error(job.error || job.message);
+        await sleep(2500);
+      }
+    }
+
+    function el(tag, attrs = {}, children = []) {
+      const node = document.createElement(tag);
+      for (const [k, v] of Object.entries(attrs)) {
+        if (k === "class") node.className = v;
+        else if (k === "text") node.textContent = v;
+        else node.setAttribute(k, v);
+      }
+      for (const child of [].concat(children)) {
+        if (child != null) node.append(child);
+      }
+      return node;
+    }
+
+    function listItems(items) {
+      return items.map((t) => el("li", { text: t }));
+    }
+
+    function renderListings() {
+      const container = document.getElementById("listings");
+      container.replaceChildren();
+      const evaluations = currentAnalysis.evaluations.filter(
+        (e) => activeTier === "all" || e.tier === activeTier,
+      );
+      if (!evaluations.length) {
+        container.append(el("p", { class: "meta", text: "No hay inmuebles en este tier." }));
+        return;
+      }
+      for (const ev of evaluations) {
+        container.append(
+          el("article", { class: "listing" }, [
+            el("div", { class: "listing-head" }, [
+              el("div", { class: `tier tier-${ev.tier}`, text: ev.tier, title: TIER_NAMES[ev.tier] }),
+              el("div", {}, [
+                el("p", { class: "listing-title" }, [
+                  el("a", { href: ev.url, target: "_blank", rel: "noopener", text: `#${ev.rank} ${ev.title}` }),
+                ]),
+                el("div", { class: "meta", text: `${ev.price} · ${ev.location}` }),
+              ]),
+              el("span", { class: `budget ${ev.fits_budget ? "ok" : "no"}`, text: ev.fits_budget ? "Dentro del presupuesto" : "Fuera del presupuesto" }),
+              el("span", { class: "score", text: `${ev.score}/100` }),
+            ]),
+            el("p", { style: "margin:0;line-height:1.5", text: ev.summary }),
+            el("div", { class: "cols" }, [
+              el("div", {}, [el("h4", { text: "A favor" }), el("ul", {}, listItems(ev.pros))]),
+              el("div", {}, [el("h4", { text: "En contra" }), el("ul", {}, listItems(ev.cons))]),
+            ]),
+            el("div", { class: "note", text: `Asesor: ${ev.advisor_note}` }),
+          ]),
+        );
+      }
+    }
+
+    function renderFilters() {
+      const counts = {};
+      for (const ev of currentAnalysis.evaluations) counts[ev.tier] = (counts[ev.tier] || 0) + 1;
+      const filters = document.getElementById("filters");
+      filters.replaceChildren();
+      const makeChip = (value, label) => {
+        const chip = el("button", { type: "button", class: `chip ${activeTier === value ? "active" : ""}`, text: label });
+        chip.addEventListener("click", () => { activeTier = value; renderFilters(); renderListings(); });
+        return chip;
+      };
+      filters.append(makeChip("all", `Todos (${currentAnalysis.evaluations.length})`));
+      for (const t of TIERS) {
+        if (counts[t]) filters.append(makeChip(t, `${t} · ${TIER_NAMES[t]} (${counts[t]})`));
+      }
+    }
+
+    function renderAnalysis(analysis) {
+      currentAnalysis = analysis;
+      activeTier = "all";
+      document.getElementById("headline").textContent = analysis.headline;
+      document.getElementById("overview").textContent = analysis.market_overview;
+      document.getElementById("top").textContent = analysis.top_recommendation;
+      document.getElementById("advice").replaceChildren(...listItems(analysis.advice));
+      const missingWrap = document.getElementById("missing-wrap");
+      missingWrap.classList.toggle("hidden", !analysis.missing_info.length);
+      document.getElementById("missing").replaceChildren(...listItems(analysis.missing_info));
+      renderFilters();
+      renderListings();
+      results.classList.remove("hidden");
+      results.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      setBusy(true);
+      results.classList.add("hidden");
+      setStatus("Enviando búsqueda...");
+      try {
+        const created = await api("/api/analyses", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(formPayload()),
+        });
+        const job = await waitForJob(created.id);
+        setStatus(`${job.listings_count} inmuebles analizados.`);
+        renderAnalysis(job.result);
+      } catch (err) {
+        setStatus(err.message || "Ocurrió un error", true);
+      } finally {
+        setBusy(false);
+      }
+    });
+  </script>
+</body>
+</html>
