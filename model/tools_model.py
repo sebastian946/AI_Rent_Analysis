@@ -8,7 +8,7 @@ class WebSearchTool(BaseModel):
     department: str
     ubication: str
     property_type: Literal["casa","apartamento","apartaestudio"]
-    service_type: Literal["arriendo","compra"]
+    service_type: Literal["arriendo","venta"]
     query: Optional[str] = None
 
 class GetWebSearchTool(BaseModel):
