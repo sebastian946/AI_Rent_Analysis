@@ -1,0 +1,13 @@
+@import "tailwindcss";
+
+@theme {
+  --color-tier-s: #7c3aed;
+  --color-tier-a: #059669;
+  --color-tier-b: #2563eb;
+  --color-tier-c: #d97706;
+  --color-tier-d: #dc2626;
+}
+
+body {
+  @apply bg-slate-50 text-slate-900 antialiased dark:bg-slate-950 dark:text-slate-100;
+}

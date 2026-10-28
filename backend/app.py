@@ -20,7 +20,8 @@ from services.analysis import NoListingsFound, run_analysis
 
 logger = logging.getLogger("ai_rent_analysis")
 
-FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
+# Build de Vite (frontend/dist). En desarrollo usa `npm run dev` con proxy a /api.
+FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 JobStatus = Literal["queued", "scraping", "analyzing", "done", "error"]
 
 
@@ -110,9 +111,18 @@ def list_analyses() -> List[JobCreated]:
         return [JobCreated(id=j.id, status=j.status) for j in _jobs.values()]
 
 
-@app.get("/", include_in_schema=False)
-def index() -> FileResponse:
-    return FileResponse(FRONTEND_DIR / "index.html")
+if FRONTEND_DIR.is_dir():
 
+    @app.get("/", include_in_schema=False)
+    def index() -> FileResponse:
+        return FileResponse(FRONTEND_DIR / "index.html")
 
-app.mount("/", StaticFiles(directory=FRONTEND_DIR), name="frontend")
+    app.mount("/", StaticFiles(directory=FRONTEND_DIR), name="frontend")
+else:
+
+    @app.get("/", include_in_schema=False)
+    def index_missing() -> dict:
+        return {
+            "detail": "Frontend no compilado. Ejecuta `npm run build` en frontend/ "
+            "o usa `npm run dev` para desarrollo."
+        }

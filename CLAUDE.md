@@ -13,7 +13,10 @@ Dependencies are managed with `uv` (lockfile `uv.lock`).
 ```
 uv sync                                   # install deps into .venv
 uv run playwright install chromium        # one-time browser install for the scraper
-uv run uvicorn backend.app:app --reload   # web app: API + frontend at http://127.0.0.1:8000 (docs at /docs)
+uv run uvicorn backend.app:app --reload   # API at http://127.0.0.1:8000 (docs at /docs); serves frontend/dist if built
+cd frontend && npm install && npm run build   # build the React frontend into frontend/dist (served by FastAPI)
+cd frontend && npm run dev                # frontend dev server at http://localhost:5173 with /api proxied to :8000
+cd frontend && npm run lint               # oxlint
 uv run python main.py                     # interactive CLI run (headless scraping)
 uv run python main.py --show-browser      # watch the scraper in a visible browser
 uv run python main.py --json report.json  # also dump the full analysis as JSON
@@ -35,5 +38,5 @@ There is no test suite or linter configured yet. Running `main.py` makes a real 
 - `agents/agent.py` — `RentAdvisorAgent.analyze(search, listings)` calls `client.beta.messages.parse` on `claude-opus-5-5` with `output_format=AgentAnalysis`, effort `high`, and server-side refusal fallbacks (`fallbacks="default"`). It sends at most `MAX_LISTINGS` (30) listings as JSON and raises on `refusal` / `max_tokens`. The system prompt holds the tier rubric and evaluation criteria.
 - `services/analysis.py` — `run_analysis(search, headless, on_progress)` is the single pipeline (scrape → agent) shared by the CLI and the API; raises `NoListingsFound` when the scraper returns nothing.
 - `backend/app.py` — FastAPI. `POST /api/analyses` (body = `WebSearchTool` JSON) enqueues a job on a 2-worker `ThreadPoolExecutor` and returns `202 {id, status}`; `GET /api/analyses/{id}` returns the `Job` (status queued/scraping/analyzing/done/error, progress `message`, `listings`, `result: AgentAnalysis`, `error`). Jobs live in an in-memory dict and are lost on restart. The scraper must stay in a worker thread because Playwright's sync API cannot run inside the asyncio loop. `/` and static files are served from `frontend/`.
-- `frontend/index.html` — single-file vanilla HTML/CSS/JS app (no build step). Submits the form to the API, polls the job every 2.5 s, then renders the tier ranking with per-tier filter chips, the top recommendation and the advice. Keep it dependency-free; it is served directly by FastAPI.
+- `frontend/` — Vite + React 19 + Tailwind CSS v4 (no config file; tokens such as `--color-tier-s` live in `src/index.css` under `@theme`, giving utilities like `bg-tier-s`). `src/api.js` wraps the job endpoints and polls every 2.5 s; `src/App.jsx` owns busy/status/error/analysis state; `components/SearchForm.jsx` builds the `WebSearchTool` payload; `components/Results.jsx` renders the ranking with per-tier filter chips via `components/ListingCard.jsx`; `src/tiers.js` maps tiers to labels and colors. Dev: `npm run dev` proxies `/api` to FastAPI. Prod: `npm run build` → `frontend/dist`, which `backend/app.py` serves (it returns a hint JSON at `/` if the build is missing). `dist/` and `node_modules/` are git-ignored.
 - `main.py` — `collect_user_input()` (interactive prompts validated through `WebSearchTool`), `run()` (calls `run_analysis` → `print_report`), CLI flags `--show-browser` and `--json`.
